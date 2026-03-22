@@ -4,6 +4,13 @@ import sqlite3
 # e.g. 0.45 means the OCR text must be within 45% edits of a boss name.
 MAX_DISTANCE_RATIO = 0.45
 
+# Boss names listed here are exceptions: when multiple rows share this name
+# (or one name is a prefix of another), show only the entry with the highest ID.
+# All other duplicate names show all entities side-by-side (val1 / val2).
+SINGLE_ENTITY_OVERRIDES = {
+    "Gnoster Wisdom of Night",
+}
+
 
 class BossDatabase:
     def __init__(self, db_name):
@@ -102,13 +109,27 @@ class BossDatabase:
                       f"(dist={best_dist}, ratio={best_ratio:.0%})")
                 return None
 
-            # Gather ALL rows with this boss name (dual-entity bosses)
+            # Gather ALL rows whose name matches (or starts with) the best match
             matched_name = best_row[1]
-            entities = [
-                self._row_to_entity(r)
-                for r in self._bosses
-                if r[1] == matched_name
+            matching_rows = [
+                r for r in self._bosses
+                if r[1] == matched_name or r[1].startswith(matched_name)
             ]
+
+            # Check if this boss is a single-entity override:
+            # show only the entry with the highest ID
+            is_override = any(
+                matched_name.lower().startswith(ov.lower())
+                for ov in SINGLE_ENTITY_OVERRIDES
+            )
+
+            if is_override and len(matching_rows) > 1:
+                best = max(matching_rows, key=lambda r: r[0])
+                matching_rows = [best]
+                # Update best_row to the override target
+                best_row = best
+
+            entities = [self._row_to_entity(r) for r in matching_rows]
 
             return {
                 "id": best_row[0],
