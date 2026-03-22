@@ -54,21 +54,14 @@ class BossApp:
 
     @staticmethod
     def _overlay_tuple(match):
-        return (
-            match["boss_name"],
-            match["standard"], match["slash"],
-            match["strike"], match["pierce"],
-            match["magic"], match["fire"],
-            match["lightning"], match["holy"],
+        """Hashable snapshot of match data for change detection."""
+        entity_tuples = tuple(
+            tuple(sorted(e.items())) for e in match["entities"]
         )
+        return (match["boss_name"], entity_tuples)
 
     def _show_boss(self, idx, match):
-        left, right = build_rows(
-            match["standard"], match["slash"],
-            match["strike"], match["pierce"],
-            match["magic"], match["fire"],
-            match["lightning"], match["holy"],
-        )
+        left, right = build_rows(match["entities"])
         self.overlays[idx].set_overlay(match["boss_name"], left, right)
         self.states[idx].overlay_data = self._overlay_tuple(match)
 

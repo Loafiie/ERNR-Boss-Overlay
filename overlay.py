@@ -154,28 +154,32 @@ class Window:
                 pass
 
 
-def build_rows(
-    standard_damage,
-    slash_damage,
-    strike_damage,
-    pierce_damage,
-    magic_affinity,
-    fire_affinity,
-    lightning_affinity,
-    holy_affinity
-):
+def _format_value(entities, key):
+    """Format a stat value across one or more entities.
+    Single entity:  '35'
+    Multi entity:   '35 / 0'"""
+    values = [str(e[key]) for e in entities]
+    return " / ".join(values)
+
+
+def build_rows(entities):
+    """Build icon+value rows from a list of entity dicts.
+
+    entities: list of dicts, each with keys like 'standard', 'slash', etc.
+    For dual-entity bosses the list has 2 items → values show as 'v1 / v2'.
+    """
     left_rows = [
-        ("src/standard-damage.png", standard_damage),
-        ("src/slash-damage.png", slash_damage),
-        ("src/strike-damage.png", strike_damage),
-        ("src/pierce-damage.png", pierce_damage),
+        ("src/standard-damage.png",  _format_value(entities, "standard")),
+        ("src/slash-damage.png",     _format_value(entities, "slash")),
+        ("src/strike-damage.png",    _format_value(entities, "strike")),
+        ("src/pierce-damage.png",    _format_value(entities, "pierce")),
     ]
 
     right_rows = [
-        ("src/magic-affinity.png", magic_affinity),
-        ("src/fire-affinity.png", fire_affinity),
-        ("src/lightning-affinity.png", lightning_affinity),
-        ("src/holy-affinity.png", holy_affinity),
+        ("src/magic-affinity.png",      _format_value(entities, "magic")),
+        ("src/fire-affinity.png",       _format_value(entities, "fire")),
+        ("src/lightning-affinity.png",  _format_value(entities, "lightning")),
+        ("src/holy-affinity.png",       _format_value(entities, "holy")),
     ]
 
     return left_rows, right_rows
@@ -183,32 +187,14 @@ def build_rows(
 
 def start_overlay(
     boss,
-    standard_damage,
-    slash_damage,
-    strike_damage,
-    pierce_damage,
-    magic_affinity,
-    fire_affinity,
-    lightning_affinity,
-    holy_affinity,
+    entities,
     x=75,
     y=175,
     w=300,
     h=180
 ):
     win = Window(x=x, y=y, w=w, h=h)
-
-    left_rows, right_rows = build_rows(
-        standard_damage,
-        slash_damage,
-        strike_damage,
-        pierce_damage,
-        magic_affinity,
-        fire_affinity,
-        lightning_affinity,
-        holy_affinity
-    )
-
+    left_rows, right_rows = build_rows(entities)
     Window.after(100, win.set_overlay, boss, left_rows, right_rows)
     Window.launch()
 

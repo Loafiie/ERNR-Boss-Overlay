@@ -39,6 +39,25 @@ class BossDatabase:
 
         return previous_row[-1]
 
+    def _row_to_entity(self, row):
+        """Convert a DB row into an entity stats dict."""
+        return {
+            "standard": row[2],
+            "slash": row[3],
+            "strike": row[4],
+            "pierce": row[5],
+            "magic": row[6],
+            "fire": row[7],
+            "lightning": row[8],
+            "holy": row[9],
+            "poison": row[10],
+            "scarlet_rot": row[11],
+            "blood_loss": row[12],
+            "frostbite": row[13],
+            "sleep": row[14],
+            "madness": row[15],
+        }
+
     def find_best_match(self, boss_name):
         try:
             cleaned_name = boss_name.strip()
@@ -83,23 +102,18 @@ class BossDatabase:
                       f"(dist={best_dist}, ratio={best_ratio:.0%})")
                 return None
 
+            # Gather ALL rows with this boss name (dual-entity bosses)
+            matched_name = best_row[1]
+            entities = [
+                self._row_to_entity(r)
+                for r in self._bosses
+                if r[1] == matched_name
+            ]
+
             return {
                 "id": best_row[0],
-                "boss_name": best_row[1],
-                "standard": best_row[2],
-                "slash": best_row[3],
-                "strike": best_row[4],
-                "pierce": best_row[5],
-                "magic": best_row[6],
-                "fire": best_row[7],
-                "lightning": best_row[8],
-                "holy": best_row[9],
-                "poison": best_row[10],
-                "scarlet_rot": best_row[11],
-                "blood_loss": best_row[12],
-                "frostbite": best_row[13],
-                "sleep": best_row[14],
-                "madness": best_row[15],
+                "boss_name": matched_name,
+                "entities": entities,
                 "distance": best_dist,
                 "ocr_input": cleaned_name,
             }
