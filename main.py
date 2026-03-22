@@ -17,8 +17,18 @@ class BossApp:
         )
         self.database = BossDatabase(DB_NAME)
 
-        self.overlay = create_overlay(x=75, y=175, w=300, h=180)
-        self.last_boss_name = None
+        self.overlay_left = create_overlay(x=75, y=175, w=300, h=180)
+        self.overlay_middle = create_overlay(x=275, y=175, w=300, h=180)
+        self.overlay_right = create_overlay(x=475, y=175, w=300, h=180)
+
+        self.overlays = [
+            self.overlay_left,
+            self.overlay_middle,
+            self.overlay_right,
+        ]
+
+        # One cache entry per overlay slot
+        self.last_overlay_data = [None, None, None]
 
     def print_match(self, match):
         print(
@@ -39,7 +49,20 @@ class BossApp:
             match["madness"],
         )
 
-    def update_overlay(self, match):
+    def make_overlay_data(self, match):
+        return (
+            match["boss_name"],
+            match["standard"],
+            match["slash"],
+            match["strike"],
+            match["pierce"],
+            match["magic"],
+            match["fire"],
+            match["lightning"],
+            match["holy"],
+        )
+
+    def update_overlay(self, overlay, match):
         left_rows, right_rows = build_rows(
             match["standard"],
             match["slash"],
@@ -51,29 +74,34 @@ class BossApp:
             match["holy"],
         )
 
-        self.overlay.set_overlay(
+        overlay.set_overlay(
             match["boss_name"],
             left_rows,
             right_rows
         )
 
+    def clear_overlay(self, overlay):
+        overlay.set_overlay("", [], [])
+
     def scan_once(self):
         boss_names = self.scanner.scan_boss_names()
         matches = self.database.find_best_matches(boss_names)
 
-        if matches:
-            #foreach match generate overlay with offset to the right
-            #recheck if something has changed
-                #if it did redraw the overlay
-                #if not do nothing
+        for i, overlay in enumerate(self.overlays):
+            if i < len(matches):
+                match = matches[i]
+                new_data = self.make_overlay_data(match)
 
-            match = matches[0]
-            self.print_match(match)
-
-            if match["boss_name"] != self.last_boss_name:
-                self.last_boss_name = match["boss_name"]
-
-            self.update_overlay(match)
+                # Only redraw if something actually changed
+                if self.last_overlay_data[i] != new_data:
+                    self.print_match(match)
+                    self.update_overlay(overlay, match)
+                    self.last_overlay_data[i] = new_data
+            else:
+                # No match for this slot anymore -> clear once
+                if self.last_overlay_data[i] is not None:
+                    self.clear_overlay(overlay)
+                    self.last_overlay_data[i] = None
 
         Window.after(int(SCAN_INTERVAL * 1000), self.scan_once)
 
