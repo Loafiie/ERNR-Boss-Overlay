@@ -1,1 +1,4 @@
-NUL 
+DB_NAME = "bossData.sqlite3"
+TESSERACT_CMD = r"C:\Program Files\Tesseract-OCR\tesseract.exe"
+OCR_CONFIG = r'--psm 7 -c tessedit_char_whitelist=abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ '
+SCAN_INTERVAL = 2
