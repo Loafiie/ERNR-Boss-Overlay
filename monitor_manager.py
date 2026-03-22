@@ -6,6 +6,7 @@ class MonitorManager:
         self.width = 0
         self.height = 0
         self._detect_primary_monitor()
+        self.create_boss_bar_region()
 
     def _detect_primary_monitor(self):
         for m in get_monitors():
@@ -15,6 +16,16 @@ class MonitorManager:
                 return
 
         raise RuntimeError("No primary monitor found.")
+
+    def create_boss_bar_region(self):
+        region = {
+            "left": int(self.width * 0.242969),
+            "top": int(self.height * 0.797222),
+            "width": 2,
+            "height": 2,
+        }
+        return region
+
 
     def get_regions(self):
         return [
@@ -31,3 +42,4 @@ class MonitorManager:
                 "height": int(self.height * 0.025694),
             }
         ]
+
