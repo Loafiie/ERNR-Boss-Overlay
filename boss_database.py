@@ -105,8 +105,9 @@ class BossDatabase:
                 return None
 
             if best_ratio > MAX_DISTANCE_RATIO:
-                print(f"         ↳ DB reject: '{cleaned_name}' ≠ '{best_row[1]}' "
-                      f"(dist={best_dist}, ratio={best_ratio:.0%})")
+                from logger import log
+                log(f"         ↳ DB reject: '{cleaned_name}' ≠ '{best_row[1]}' "
+                    f"(dist={best_dist}, ratio={best_ratio:.0%})")
                 return None
 
             # Gather ALL rows whose name matches (or starts with) the best match
@@ -140,7 +141,8 @@ class BossDatabase:
             }
 
         except Exception as e:
-            print(f"         ↳ DB error for '{boss_name}': {e}")
+            from logger import log
+            log(f"         ↳ DB error for '{boss_name}': {e}")
             return None
 
     def find_best_matches(self, boss_name_array):

@@ -1,9 +1,10 @@
 import tkinter as tk
 import os
+from resource_path import get_base_path
 
 windows = []
 BG = "#010101"
-BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+BASE_DIR = get_base_path()
 
 
 class Window:

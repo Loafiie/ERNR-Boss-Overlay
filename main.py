@@ -1,4 +1,7 @@
+import sys
+
 from config import DB_NAME, TESSERACT_CMD, OCR_CONFIG, SCAN_INTERVAL
+from logger import VERBOSE, log
 from monitor_manager import MonitorManager
 from boss_scanner import BossScanner
 from boss_database import BossDatabase
@@ -10,6 +13,7 @@ CONFIRM_THRESHOLD = 2
 CLEAR_THRESHOLD = 3
 
 REGION_LABELS = ["Lower", "Mid  ", "Upper"]
+
 
 
 class RegionState:
@@ -31,9 +35,17 @@ class BossApp:
         regions = monitor.get_regions()
         overlay_positions = monitor.get_overlay_positions()
 
-        print(f"Monitor: {monitor.width}x{monitor.height}")
+        print("============================================")
+        print("  ERNR Boss Overlay — Running")
+        print(f"  Monitor : {monitor.width}x{monitor.height}")
+        print(f"  Scan    : every {SCAN_INTERVAL}s")
+        print(f"  Regions : {len(regions)}")
+        print(f"  Logging : {'ON (--log)' if VERBOSE else 'OFF (use --log to enable)'}")
+        print("============================================")
+
+        log(f"\nOverlay positions:")
         for i, (x, y, w, h) in enumerate(overlay_positions):
-            print(f"  Overlay {i}: x={x} y={y} w={w} h={h}")
+            log(f"  Overlay {i}: x={x} y={y} w={w} h={h}")
 
         self.scanner = BossScanner(
             regions=regions,
@@ -83,9 +95,9 @@ class BossApp:
         self.scan_num += 1
         scan_results = self.scanner.scan()
 
-        print(f"\n{'='*50}")
-        print(f"  Scan #{self.scan_num}")
-        print(f"{'='*50}")
+        log(f"\n{'='*50}")
+        log(f"  Scan #{self.scan_num}")
+        log(f"{'='*50}")
 
         for idx, result in enumerate(scan_results):
             label = REGION_LABELS[idx]
@@ -96,7 +108,7 @@ class BossApp:
             # ── Log region status ──
             bar_str = "ACTIVE" if bar else "inactive"
             ocr_str = f"'{ocr_name}'" if ocr_name else "(none)"
-            print(f"  {label:5s}  bar={bar_str:8s}  ocr={ocr_str}")
+            log(f"  {label:5s}  bar={bar_str:8s}  ocr={ocr_str}")
 
             # ── Bar is INACTIVE → count towards clearing ──
             if not bar:
@@ -106,9 +118,9 @@ class BossApp:
 
                 if st.boss_id is not None and st.inactive_count >= CLEAR_THRESHOLD:
                     old = self._clear_slot(idx)
-                    print(f"         ✖ Cleared '{old}' (bar inactive for {CLEAR_THRESHOLD} scans)")
+                    log(f"         ✖ Cleared '{old}' (bar inactive for {CLEAR_THRESHOLD} scans)")
                 elif st.boss_id is not None:
-                    print(f"         … bar gone ({st.inactive_count}/{CLEAR_THRESHOLD}), keeping overlay")
+                    log(f"         … bar gone ({st.inactive_count}/{CLEAR_THRESHOLD}), keeping overlay")
                 continue
 
             # ── Bar is ACTIVE ──
@@ -125,12 +137,12 @@ class BossApp:
                     new_data = self._overlay_tuple(match)
                     if st.overlay_data != new_data:
                         self._show_boss(idx, match)
-                        print(f"         ↻ Updated '{match['boss_name']}'")
+                        log(f"         ↻ Updated '{match['boss_name']}'")
                     else:
-                        print(f"         ✔ '{st.boss_name}' (no change)")
+                        log(f"         ✔ '{st.boss_name}' (no change)")
                 else:
                     # OCR failed or matched something else — keep current overlay
-                    print(f"         ✔ Keeping '{st.boss_name}' (bar still active)")
+                    log(f"         ✔ Keeping '{st.boss_name}' (bar still active)")
                 continue
 
             # Case 2: no boss shown yet — need confirmation
@@ -138,9 +150,9 @@ class BossApp:
                 # Don't reset pending — the bar is active, OCR just had a
                 # bad frame.  The pending boss is likely still there.
                 if st.pending_id is not None:
-                    print(f"         – No match (keeping pending '{st.pending_name}')")
+                    log(f"         – No match (keeping pending '{st.pending_name}')")
                 else:
-                    print(f"         – No match")
+                    log(f"         – No match")
                 continue
 
             if match["id"] == st.pending_id:
@@ -156,17 +168,17 @@ class BossApp:
                 st.pending_id = None
                 st.pending_count = 0
                 self._show_boss(idx, match)
-                print(f"         ★ Confirmed '{match['boss_name']}'")
+                log(f"         ★ Confirmed '{match['boss_name']}'")
             else:
-                print(f"         ⏳ Pending '{match['boss_name']}' "
+                log(f"         ⏳ Pending '{match['boss_name']}' "
                       f"({st.pending_count}/{CONFIRM_THRESHOLD})")
 
         # ── Summary ──
         active = [st.boss_name for st in self.states if st.boss_id is not None]
         if active:
-            print(f"  ── Showing: {', '.join(active)}")
+            log(f"  ── Showing: {', '.join(active)}")
         else:
-            print(f"  ── No bosses displayed")
+            log(f"  ── No bosses displayed")
 
         Window.after(int(SCAN_INTERVAL * 1000), self.scan_once)
 

@@ -1,2 +1,7 @@
 screeninfo
 pyautogui
+mss
+opencv-python
+pytesseract
+numpy
+pyinstaller
