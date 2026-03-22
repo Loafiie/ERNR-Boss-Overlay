@@ -7,66 +7,79 @@ import pyautogui
 
 from ocr_utils import OCRUtils
 
+# Minimum percentage of bright pixels in a region to consider it as containing text
+MIN_TEXT_PIXEL_RATIO = 0.003
+# Maximum percentage - too many bright pixels means it's not a boss name region
+MAX_TEXT_PIXEL_RATIO = 0.40
+
 
 class BossScanner:
     def __init__(self, regions, tesseract_cmd, config):
         self.regions = regions
-        self.region_active = regions
         self.config = config
-        self.boss_bar_color = (255, 255, 255)
         self.monitor = monitor_manager.MonitorManager()
-        self.is_boss_active()
+        self.bar_regions = self.monitor.get_boss_bar_regions()
         pytesseract.pytesseract.tesseract_cmd = tesseract_cmd
 
-    def is_boss_active(self) -> bool:
-        region_dict = self.monitor.create_boss_bar_region()
-
-        region_boss = (
-            region_dict["left"],
-            region_dict["top"],
-            region_dict["width"],
-            region_dict["height"],
+    def _check_bar(self, bar_region) -> bool:
+        """Check if a specific boss health bar is visible (red pixels)."""
+        region_tuple = (
+            bar_region["left"],
+            bar_region["top"],
+            bar_region["width"],
+            bar_region["height"],
         )
 
-        screenshot = pyautogui.screenshot(region=region_boss)
+        screenshot = pyautogui.screenshot(region=region_tuple)
         frame = np.array(screenshot)
-        frame = cv2.cvtColor(frame, cv2.COLOR_RGB2BGR)  # Convert to OpenCV BGR
-
+        frame = cv2.cvtColor(frame, cv2.COLOR_RGB2BGR)
         hsv = cv2.cvtColor(frame, cv2.COLOR_BGR2HSV)
 
-        lower_color = np.array([0, 120, 70])
-        upper_color = np.array([10, 255, 255])
+        lower_red = np.array([0, 120, 70])
+        upper_red = np.array([10, 255, 255])
+        mask = cv2.inRange(hsv, lower_red, upper_red)
 
-        mask = cv2.inRange(hsv, lower_color, upper_color)
+        return cv2.countNonZero(mask) > 0
 
-        if cv2.countNonZero(mask) > 0:
-            # Find exact coordinates
-            y, x = np.where(mask == 255)
-            return True
-        else:
-            print("Bass bar is inactive")
-            return False
+    @staticmethod
+    def _region_has_text(img):
+        """Check if the region has enough bright pixels to contain text."""
+        gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
+        _, binary = cv2.threshold(gray, 180, 255, cv2.THRESH_BINARY)
+        total = binary.size
+        bright = cv2.countNonZero(binary)
+        ratio = bright / total
+        return MIN_TEXT_PIXEL_RATIO <= ratio <= MAX_TEXT_PIXEL_RATIO
 
-    def scan_boss_names(self):
-        found_names = []
+    def scan(self):
+        """Scan all regions independently.
 
-        if self.is_boss_active():
-            with mss.mss() as sct:
-                for i, region in enumerate(self.regions):
+        Returns a list (one per region) of dicts:
+            {"bar_active": bool, "name": str | None}
+        """
+        results = []
+
+        with mss.mss() as sct:
+            for i, region in enumerate(self.regions):
+                bar_active = self._check_bar(self.bar_regions[i])
+                name = None
+
+                if bar_active:
                     screenshot = sct.grab(region)
                     img = np.array(screenshot)
                     img = cv2.cvtColor(img, cv2.COLOR_BGRA2BGR)
 
-                    processed = OCRUtils.preprocess(img)
-                    text = pytesseract.image_to_string(processed, lang="eng", config=self.config)
-                    text = OCRUtils.clean_text(text)
+                    if self._region_has_text(img):
+                        processed = OCRUtils.preprocess(img)
+                        raw = pytesseract.image_to_string(
+                            processed, lang="eng", config=self.config
+                        )
+                        text = OCRUtils.clean_text(raw)
 
-                    print(f"Region {i}: '{text}'")
+                        if OCRUtils.is_valid_ocr_text(text):
+                            name = text
 
-                    if not OCRUtils.is_valid_ocr_text(text):
-                        print(f"Region {i}: rejected as OCR garbage")
-                        continue
+                results.append({"bar_active": bar_active, "name": name})
 
-                    found_names.append(text)
+        return results
 
-        return found_names

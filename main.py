@@ -4,104 +4,176 @@ from boss_scanner import BossScanner
 from boss_database import BossDatabase
 from overlay import create_overlay, build_rows, Window
 
+# Number of consecutive scans a boss must appear before showing overlay
+CONFIRM_THRESHOLD = 2
+# Number of consecutive scans with a region's bar INACTIVE before clearing it
+CLEAR_THRESHOLD = 3
+
+REGION_LABELS = ["Lower", "Mid  ", "Upper"]
+
+
+class RegionState:
+    """Tracks state for one scan region (one boss slot)."""
+
+    def __init__(self):
+        self.boss_id = None          # Currently displayed boss id (or None)
+        self.boss_name = None        # Displayed boss name (for logging)
+        self.inactive_count = 0      # Consecutive scans with bar inactive
+        self.pending_id = None       # Boss id awaiting confirmation
+        self.pending_name = None     # Boss name awaiting confirmation (for logging)
+        self.pending_count = 0       # How many scans the pending boss was seen
+        self.overlay_data = None     # Cached overlay tuple to avoid redraws
+
 
 class BossApp:
     def __init__(self):
-        monitor_manager = MonitorManager()
-        regions = monitor_manager.get_regions()
+        monitor = MonitorManager()
+        regions = monitor.get_regions()
+        overlay_positions = monitor.get_overlay_positions()
+
+        print(f"Monitor: {monitor.width}x{monitor.height}")
+        for i, (x, y, w, h) in enumerate(overlay_positions):
+            print(f"  Overlay {i}: x={x} y={y} w={w} h={h}")
 
         self.scanner = BossScanner(
             regions=regions,
             tesseract_cmd=TESSERACT_CMD,
-            config=OCR_CONFIG
+            config=OCR_CONFIG,
         )
         self.database = BossDatabase(DB_NAME)
 
-        self.overlay_left = create_overlay(x=75, y=175, w=300, h=180)
-        self.overlay_middle = create_overlay(x=275, y=175, w=300, h=180)
-        self.overlay_right = create_overlay(x=475, y=175, w=300, h=180)
-
         self.overlays = [
-            self.overlay_left,
-            self.overlay_middle,
-            self.overlay_right,
+            create_overlay(x=x, y=y, w=w, h=h)
+            for x, y, w, h in overlay_positions
         ]
 
-        # One cache entry per overlay slot
-        self.last_overlay_data = [None, None, None]
+        self.states = [RegionState() for _ in regions]
+        self.scan_num = 0
 
-    def print_match(self, match):
-        print(
-            match["boss_name"],
-            match["standard"],
-            match["slash"],
-            match["strike"],
-            match["pierce"],
-            match["magic"],
-            match["fire"],
-            match["lightning"],
-            match["holy"],
-            match["poison"],
-            match["scarlet_rot"],
-            match["blood_loss"],
-            match["frostbite"],
-            match["sleep"],
-            match["madness"],
-        )
+    # ── helpers ──────────────────────────────────────────────
 
-    def make_overlay_data(self, match):
+    @staticmethod
+    def _overlay_tuple(match):
         return (
             match["boss_name"],
-            match["standard"],
-            match["slash"],
-            match["strike"],
-            match["pierce"],
-            match["magic"],
-            match["fire"],
-            match["lightning"],
-            match["holy"],
+            match["standard"], match["slash"],
+            match["strike"], match["pierce"],
+            match["magic"], match["fire"],
+            match["lightning"], match["holy"],
         )
 
-    def update_overlay(self, overlay, match):
-        left_rows, right_rows = build_rows(
-            match["standard"],
-            match["slash"],
-            match["strike"],
-            match["pierce"],
-            match["magic"],
-            match["fire"],
-            match["lightning"],
-            match["holy"],
+    def _show_boss(self, idx, match):
+        left, right = build_rows(
+            match["standard"], match["slash"],
+            match["strike"], match["pierce"],
+            match["magic"], match["fire"],
+            match["lightning"], match["holy"],
         )
+        self.overlays[idx].set_overlay(match["boss_name"], left, right)
+        self.states[idx].overlay_data = self._overlay_tuple(match)
 
-        overlay.set_overlay(
-            match["boss_name"],
-            left_rows,
-            right_rows
-        )
+    def _clear_slot(self, idx):
+        self.overlays[idx].set_overlay("", [], [])
+        st = self.states[idx]
+        old_name = st.boss_name or "?"
+        st.boss_id = None
+        st.boss_name = None
+        st.overlay_data = None
+        st.pending_id = None
+        st.pending_name = None
+        st.pending_count = 0
+        return old_name
 
-    def clear_overlay(self, overlay):
-        overlay.set_overlay("", [], [])
+    # ── main scan loop ──────────────────────────────────────
 
     def scan_once(self):
-        boss_names = self.scanner.scan_boss_names()
-        matches = self.database.find_best_matches(boss_names)
+        self.scan_num += 1
+        scan_results = self.scanner.scan()
 
-        for i, overlay in enumerate(self.overlays):
-            if i < len(matches):
-                match = matches[i]
-                new_data = self.make_overlay_data(match)
+        print(f"\n{'='*50}")
+        print(f"  Scan #{self.scan_num}")
+        print(f"{'='*50}")
 
-                # Only redraw if something actually changed
-                if self.last_overlay_data[i] != new_data:
-                    self.print_match(match)
-                    self.update_overlay(overlay, match)
-                    self.last_overlay_data[i] = new_data
+        for idx, result in enumerate(scan_results):
+            label = REGION_LABELS[idx]
+            st = self.states[idx]
+            bar = result["bar_active"]
+            ocr_name = result["name"]
+
+            # ── Log region status ──
+            bar_str = "ACTIVE" if bar else "inactive"
+            ocr_str = f"'{ocr_name}'" if ocr_name else "(none)"
+            print(f"  {label:5s}  bar={bar_str:8s}  ocr={ocr_str}")
+
+            # ── Bar is INACTIVE → count towards clearing ──
+            if not bar:
+                st.inactive_count += 1
+                st.pending_id = None
+                st.pending_count = 0
+
+                if st.boss_id is not None and st.inactive_count >= CLEAR_THRESHOLD:
+                    old = self._clear_slot(idx)
+                    print(f"         ✖ Cleared '{old}' (bar inactive for {CLEAR_THRESHOLD} scans)")
+                elif st.boss_id is not None:
+                    print(f"         … bar gone ({st.inactive_count}/{CLEAR_THRESHOLD}), keeping overlay")
+                continue
+
+            # ── Bar is ACTIVE ──
+            st.inactive_count = 0
+
+            # Try to match OCR text to a boss
+            match = None
+            if ocr_name:
+                match = self.database.find_best_match(ocr_name)
+
+            # Case 1: already showing a boss in this slot
+            if st.boss_id is not None:
+                if match and match["id"] == st.boss_id:
+                    new_data = self._overlay_tuple(match)
+                    if st.overlay_data != new_data:
+                        self._show_boss(idx, match)
+                        print(f"         ↻ Updated '{match['boss_name']}'")
+                    else:
+                        print(f"         ✔ '{st.boss_name}' (no change)")
+                else:
+                    # OCR failed or matched something else — keep current overlay
+                    print(f"         ✔ Keeping '{st.boss_name}' (bar still active)")
+                continue
+
+            # Case 2: no boss shown yet — need confirmation
+            if match is None:
+                # Don't reset pending — the bar is active, OCR just had a
+                # bad frame.  The pending boss is likely still there.
+                if st.pending_id is not None:
+                    print(f"         – No match (keeping pending '{st.pending_name}')")
+                else:
+                    print(f"         – No match")
+                continue
+
+            if match["id"] == st.pending_id:
+                st.pending_count += 1
             else:
-                # No match for this slot anymore -> clear once
-                if self.last_overlay_data[i] is not None:
-                    self.clear_overlay(overlay)
-                    self.last_overlay_data[i] = None
+                st.pending_id = match["id"]
+                st.pending_name = match["boss_name"]
+                st.pending_count = 1
+
+            if st.pending_count >= CONFIRM_THRESHOLD:
+                st.boss_id = match["id"]
+                st.boss_name = match["boss_name"]
+                st.pending_id = None
+                st.pending_count = 0
+                self._show_boss(idx, match)
+                print(f"         ★ Confirmed '{match['boss_name']}'")
+            else:
+                print(f"         ⏳ Pending '{match['boss_name']}' "
+                      f"({st.pending_count}/{CONFIRM_THRESHOLD})")
+
+        # ── Summary ──
+        active = [st.boss_name for st in self.states if st.boss_id is not None]
+        if active:
+            print(f"  ── Showing: {', '.join(active)}")
+        else:
+            print(f"  ── No bosses displayed")
 
         Window.after(int(SCAN_INTERVAL * 1000), self.scan_once)
 
@@ -113,3 +185,4 @@ class BossApp:
 if __name__ == "__main__":
     app = BossApp()
     app.run()
+
